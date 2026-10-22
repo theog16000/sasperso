@@ -2,6 +2,10 @@
 
 Une application simple pour gérer le budget, la trésorerie et les membres de votre association.
 
+## Accéder à l'application
+
+Ouvrez [Ensemble](https://theog16000.github.io/sasperso/).
+
 ## Démarrer
 
 Ouvrez `index.html` dans un navigateur moderne. Aucune installation, aucun compte, aucune configuration.
