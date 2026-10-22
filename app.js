@@ -1,5 +1,13 @@
 const STORAGE_KEY = "ensemble-association-atlas-v2";
-const euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
+const defaultSettings = {
+  membershipFee: 45,
+  currency: "EUR",
+  fiscalYearStartMonth: 9,
+  transactionCategories: ["Cotisations", "Subventions", "Dons", "Événements", "Matériel", "Communication", "Assurance", "Autre"],
+  memberRoles: ["Membre", "Président", "Trésorier", "Secrétaire", "Bénévole"]
+};
+const currencies = ["EUR", "CHF", "CAD", "USD", "GBP"];
+const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 const shortDate = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short" });
 const fullDate = new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "long", year: "numeric" });
 const relativeDate = (days) => {
@@ -9,13 +17,15 @@ const relativeDate = (days) => {
 };
 const exerciseLabel = () => {
   const now = new Date();
-  const year = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+  const year = now.getMonth() >= settings.fiscalYearStartMonth - 1 ? now.getFullYear() : now.getFullYear() - 1;
   return `Exercice ${year}–${year + 1}`;
 };
 const createId = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 let profile = null;
 let data = { transactions: [], members: [], budgets: [] };
+let settings = { ...defaultSettings, transactionCategories: [...defaultSettings.transactionCategories], memberRoles: [...defaultSettings.memberRoles] };
+let euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: settings.currency });
 let currentPage = "dashboard";
 let transactionFilter = "all";
 let searchQuery = "";
@@ -50,6 +60,26 @@ function associationName() {
   return profile?.association_name?.trim() || "Mon association";
 }
 
+function currencyUnit() {
+  return euro.formatToParts(0).find((part) => part.type === "currency")?.value || settings.currency;
+}
+
+function normalizeSettings(value) {
+  if (!value || typeof value !== "object") return { ...defaultSettings, transactionCategories: [...defaultSettings.transactionCategories], memberRoles: [...defaultSettings.memberRoles] };
+  return {
+    membershipFee: Number(value.membershipFee ?? defaultSettings.membershipFee),
+    currency: value.currency || defaultSettings.currency,
+    fiscalYearStartMonth: Number(value.fiscalYearStartMonth ?? defaultSettings.fiscalYearStartMonth),
+    transactionCategories: [...(value.transactionCategories || defaultSettings.transactionCategories)],
+    memberRoles: [...(value.memberRoles || defaultSettings.memberRoles)]
+  };
+}
+
+function setSettings(value) {
+  settings = normalizeSettings(value);
+  euro = new Intl.NumberFormat("fr-FR", { style: "currency", currency: settings.currency });
+}
+
 function sumTransactions(type) {
   return data.transactions.filter((item) => item.type === type && item.status === "Réglé").reduce((sum, item) => sum + Number(item.amount), 0);
 }
@@ -60,7 +90,7 @@ function balance() {
 
 function saveWorkspace() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profile, ...data }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profile, settings, ...data }));
     const notice = document.querySelector("#storage-notice");
     notice?.classList.remove("storage-warning");
     if (notice) notice.textContent = "Vos données sont enregistrées sur cet appareil.";
@@ -105,6 +135,7 @@ function loadWorkspace() {
       members: workspace.members,
       budgets: workspace.budgets
     };
+    setSettings(workspace.settings);
     showApp();
   } catch (error) {
     console.error("La sauvegarde de l’espace associatif est invalide.", error);
@@ -119,6 +150,14 @@ function isValidWorkspace(workspace) {
   if (!Array.isArray(workspace.transactions) || !Array.isArray(workspace.members) || !Array.isArray(workspace.budgets)) return false;
   const validText = (value) => typeof value === "string";
   const validDate = (value) => validText(value) && /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (workspace.settings) {
+    const value = workspace.settings;
+    if (!Number.isFinite(Number(value.membershipFee)) || Number(value.membershipFee) < 0
+      || !currencies.includes(value.currency)
+      || !Number.isInteger(Number(value.fiscalYearStartMonth)) || Number(value.fiscalYearStartMonth) < 1 || Number(value.fiscalYearStartMonth) > 12
+      || !Array.isArray(value.transactionCategories) || !value.transactionCategories.length || !value.transactionCategories.every((item) => validText(item) && item.trim())
+      || !Array.isArray(value.memberRoles) || !value.memberRoles.length || !value.memberRoles.every((item) => validText(item) && item.trim())) return false;
+  }
   return workspace.transactions.every((item) => item && validText(item.title) && validText(item.category) && validDate(item.date) && Number.isFinite(Number(item.amount)) && Number(item.amount) > 0 && ["income", "expense"].includes(item.type) && ["Réglé", "En attente"].includes(item.status))
     && workspace.members.every((item) => item && validText(item.name) && validText(item.email) && validText(item.role) && validDate(item.joined) && ["Actif", "Inactif"].includes(item.status))
     && workspace.budgets.every((item) => item && validText(item.name) && validText(item.description) && validText(item.category) && Number.isFinite(Number(item.limit)) && Number(item.limit) > 0);
@@ -151,6 +190,7 @@ function finishSetup(event) {
     opening_balance: openingBalance
   };
   data = { transactions: [], members: [], budgets: [] };
+  setSettings(defaultSettings);
   if (!saveWorkspace()) return;
   currentPage = "dashboard";
   showApp();
@@ -268,7 +308,7 @@ function memberRows() {
 function renderMembers() {
   const active = data.members.filter((member) => member.status === "Actif").length;
   return `${heading("Membres", "Gardez le lien avec celles et ceux qui font vivre l'association.", actionButton("Ajouter un membre", "new-member"))}
-    <section class="metric-grid">${metric("Membres au total", String(data.members.length), "Dans l'annuaire de l'association", "♧")}${metric("Membres actifs", String(active), "Adhésions à jour", "✓", true)}${metric("Adhésions à renouveler", String(data.members.length - active), "Pensez à les contacter", "◷")}${metric("Cotisation annuelle", "45,00 €", "Montant de référence", "€")}</section>
+    <section class="metric-grid">${metric("Membres au total", String(data.members.length), "Dans l'annuaire de l'association", "♧")}${metric("Membres actifs", String(active), "Adhésions à jour", "✓", true)}${metric("Adhésions à renouveler", String(data.members.length - active), "Pensez à les contacter", "◷")}${metric("Cotisation annuelle", euro.format(settings.membershipFee), "Montant défini dans Mon profil", currencyUnit())}</section>
     <section class="panel lower-panel"><div class="panel-heading"><div><h2>Annuaire des membres</h2><div class="panel-subtitle">${data.members.length} personne${data.members.length === 1 ? "" : "s"} dans l'association</div></div><label class="toolbar-search">${icons.search}<span class="sr-only">Rechercher un membre</span><input id="member-search" placeholder="Rechercher" value="${escapeHtml(memberQuery)}" /></label></div><div class="table-wrap"><table class="members-table"><thead><tr><th>MEMBRE</th><th>EMAIL</th><th>RÔLE</th><th>INSCRIT·E LE</th><th>STATUT</th></tr></thead><tbody>${memberRows()}</tbody></table></div></section>`;
 }
 
@@ -306,9 +346,19 @@ function renderProfile() {
       <form id="profile-form" class="profile-form"><div class="field"><label for="profile-full-name">Votre nom</label><input id="profile-full-name" name="full_name" type="text" maxlength="120" autocomplete="name" required value="${escapeHtml(profile.full_name)}" /></div>
       <div class="field"><label for="profile-association-name">Nom de l'association</label><input id="profile-association-name" name="association_name" type="text" maxlength="150" required value="${escapeHtml(associationName())}" /></div>
       <div class="field"><label for="profile-email">E-mail (facultatif)</label><input id="profile-email" name="email" type="email" maxlength="254" autocomplete="email" value="${escapeHtml(profile.email || "")}" /></div>
-      <div class="field"><label for="profile-opening-balance">Solde au début du suivi (€)</label><input id="profile-opening-balance" name="opening_balance" type="number" step="0.01" value="${Number(profile.opening_balance || 0)}" required /><small>Ce montant sert de point de départ au calcul de la trésorerie.</small></div>
+      <div class="field"><label for="profile-opening-balance">Solde au début du suivi (${escapeHtml(currencyUnit())})</label><input id="profile-opening-balance" name="opening_balance" type="number" step="0.01" value="${Number(profile.opening_balance || 0)}" required /><small>Ce montant sert de point de départ au calcul de la trésorerie.</small></div>
       <div class="profile-form-actions"><button class="button button-primary" type="submit">Enregistrer mon profil</button></div></form></article>
-      <article class="panel profile-account-panel"><div class="panel-heading"><div><h2>Vos données</h2><div class="panel-subtitle">Sans compte, synchronisation ni mot de passe.</div></div></div><p id="storage-notice">Vos données sont enregistrées sur cet appareil. Elles ne sont accessibles que depuis ce navigateur.</p><div class="profile-account-actions"><button class="button button-quiet" id="export-backup" type="button">${icons.download} Télécharger une sauvegarde</button><button class="button button-quiet" id="import-backup" type="button">Restaurer une sauvegarde</button></div></article></section>`;
+      <article class="panel profile-account-panel"><div class="panel-heading"><div><h2>Vos données</h2><div class="panel-subtitle">Sans compte, synchronisation ni mot de passe.</div></div></div><p id="storage-notice">Vos données sont enregistrées sur cet appareil. Elles ne sont accessibles que depuis ce navigateur.</p><div class="profile-account-actions"><button class="button button-quiet" id="export-backup" type="button">${icons.download} Télécharger une sauvegarde</button><button class="button button-quiet" id="import-backup" type="button">Restaurer une sauvegarde</button></div></article>
+      <article class="panel settings-panel"><div class="panel-heading"><div><h2>Réglages personnalisables</h2><div class="panel-subtitle">Adaptez les montants, les catégories et les rôles à votre association.</div></div></div>
+        <form id="settings-form" class="settings-form">
+          <div class="field"><label for="settings-membership-fee">Montant de la cotisation annuelle (${escapeHtml(currencyUnit())})</label><input id="settings-membership-fee" name="membership_fee" type="number" min="0" step="0.01" value="${settings.membershipFee}" required /></div>
+          <div class="field"><label for="settings-currency">Devise</label><select id="settings-currency" name="currency">${currencies.map((currency) => `<option value="${currency}"${currency === settings.currency ? " selected" : ""}>${currency}</option>`).join("")}</select><small>Changer de devise ne convertit pas les montants déjà saisis.</small></div>
+          <div class="field"><label for="settings-fiscal-month">Début de l'exercice comptable</label><select id="settings-fiscal-month" name="fiscal_year_start_month">${months.map((month, index) => `<option value="${index + 1}"${index + 1 === settings.fiscalYearStartMonth ? " selected" : ""}>${month}</option>`).join("")}</select></div>
+          <div class="field"><label for="settings-categories">Catégories des opérations</label><textarea id="settings-categories" name="transaction_categories" rows="5" required>${escapeHtml(settings.transactionCategories.join("\n"))}</textarea><small>Une catégorie par ligne. Utilisées dans les opérations de trésorerie.</small></div>
+          <div class="field"><label for="settings-roles">Rôles des membres</label><textarea id="settings-roles" name="member_roles" rows="5" required>${escapeHtml(settings.memberRoles.join("\n"))}</textarea><small>Un rôle par ligne. Utilisés dans l'annuaire des membres.</small></div>
+          <div class="profile-form-actions"><button class="button button-primary" type="submit">Enregistrer les réglages</button></div>
+        </form>
+      </article></section>`;
 }
 
 function bindPageActions() {
@@ -334,6 +384,7 @@ function bindPageActions() {
     input.setSelectionRange(position, position);
   });
   document.querySelector("#profile-form")?.addEventListener("submit", handleProfileSubmit);
+  document.querySelector("#settings-form")?.addEventListener("submit", handleSettingsSubmit);
   document.querySelector("#export-backup")?.addEventListener("click", exportBackup);
   document.querySelector("#import-backup")?.addEventListener("click", () => document.querySelector("#backup-file").click());
 }
@@ -357,21 +408,21 @@ function openModal(mode) {
   const configuration = {
     transaction: { title: "Nouvelle opération", submit: "Enregistrer l’opération", fields: [
       field("description", "Description", "text", "Ex. Cotisation annuelle", true),
-      field("amount", "Montant (€)", "number", "0,00", true, 'min="0.01" step="0.01"'),
+      field("amount", `Montant (${currencyUnit()})`, "number", "0,00", true, 'min="0.01" step="0.01"'),
       selectField("type", "Type", [["income", "Entrée"], ["expense", "Sortie"]]),
-      selectField("category", "Catégorie", [["Cotisations", "Cotisations"], ["Subventions", "Subventions"], ["Dons", "Dons"], ["Événements", "Événements"], ["Matériel", "Matériel"], ["Communication", "Communication"], ["Assurance", "Assurance"], ["Autre", "Autre"]]),
+      selectField("category", "Catégorie", settings.transactionCategories.map((category) => [category, category])),
       field("date", "Date", "date", "", true, "", relativeDate(0)),
       selectField("status", "Statut", [["Réglé", "Réglé"], ["En attente", "En attente"]])
     ] },
     member: { title: "Ajouter un membre", submit: "Ajouter au registre", fields: [
       field("name", "Nom complet", "text", "Ex. Alex Dupont", true),
       field("email", "Adresse e-mail (facultative)", "email", "alex@email.fr"),
-      selectField("role", "Rôle", [["Membre", "Membre"], ["Président", "Président"], ["Trésorier", "Trésorier"], ["Secrétaire", "Secrétaire"], ["Bénévole", "Bénévole"]]),
+      selectField("role", "Rôle", settings.memberRoles.map((role) => [role, role])),
       field("joined", "Date d'adhésion", "date", "", true, "", relativeDate(0))
     ] },
     budget: { title: "Nouveau budget", submit: "Créer le budget", fields: [
       field("name", "Nom de la catégorie", "text", "Ex. Formation", true),
-      field("limit", "Montant prévu (€)", "number", "0,00", true, 'min="0.01" step="0.01"'),
+      field("limit", `Montant prévu (${currencyUnit()})`, "number", "0,00", true, 'min="0.01" step="0.01"'),
       field("description", "Description", "text", "À quoi servira ce budget ?", true),
       field("category", "Catégorie des opérations", "text", "Ex. Formation", true)
     ] }
@@ -447,6 +498,31 @@ function handleProfileSubmit(event) {
   toast("Profil mis à jour.");
 }
 
+function handleSettingsSubmit(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const membershipFeeValue = String(form.get("membership_fee") || "").trim();
+  const membershipFee = Number(membershipFeeValue);
+  const currency = String(form.get("currency") || "");
+  const fiscalYearStartMonth = Number(form.get("fiscal_year_start_month"));
+  const parseList = (key) => [...new Set(String(form.get(key) || "").split(/[\n,]/).map((item) => item.trim()).filter(Boolean))];
+  const transactionCategories = parseList("transaction_categories");
+  const memberRoles = parseList("member_roles");
+  if (!membershipFeeValue || !Number.isFinite(membershipFee) || membershipFee < 0) return toast("Saisissez un montant de cotisation valide.", true);
+  if (!currencies.includes(currency)) return toast("Choisissez une devise disponible.", true);
+  if (!Number.isInteger(fiscalYearStartMonth) || fiscalYearStartMonth < 1 || fiscalYearStartMonth > 12) return toast("Choisissez un mois de début d'exercice valide.", true);
+  if (!transactionCategories.length || !memberRoles.length) return toast("Ajoutez au moins une catégorie et un rôle.", true);
+  if ([...transactionCategories, ...memberRoles].some((item) => item.length > 60)) return toast("Chaque catégorie et chaque rôle doit faire 60 caractères maximum.", true);
+  const previous = settings;
+  setSettings({ membershipFee, currency, fiscalYearStartMonth, transactionCategories, memberRoles });
+  if (!saveWorkspace()) {
+    setSettings(previous);
+    return;
+  }
+  render();
+  toast("Réglages enregistrés.");
+}
+
 function csvCell(value) {
   let text = String(value);
   if (/^[\t\r\n ]*[=+\-@]/.test(text)) text = `'${text}`;
@@ -463,7 +539,7 @@ function downloadBlob(blob, filename) {
 }
 
 function exportTransactions() {
-  const columns = ["Date", "Description", "Type", "Catégorie", "Montant (EUR)", "Statut"];
+  const columns = ["Date", "Description", "Type", "Catégorie", `Montant (${settings.currency})`, "Statut"];
   const lines = data.transactions.map((item) => [item.date, item.title, item.type === "income" ? "Entrée" : "Sortie", item.category, Number(item.amount).toFixed(2), item.status]);
   const csv = [columns, ...lines].map((row) => row.map(csvCell).join(";")).join("\r\n");
   downloadBlob(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }), `${fileSlug()}-tresorerie-${relativeDate(0)}.csv`);
@@ -475,7 +551,7 @@ function fileSlug() {
 }
 
 function exportBackup() {
-  const backup = JSON.stringify({ version: 1, profile, ...data }, null, 2);
+  const backup = JSON.stringify({ version: 1, profile, settings, ...data }, null, 2);
   downloadBlob(new Blob([backup], { type: "application/json" }), `${fileSlug()}-sauvegarde-${relativeDate(0)}.json`);
   toast("Sauvegarde téléchargée.");
 }
@@ -492,6 +568,7 @@ async function importBackup(event) {
     if (!window.confirm("Remplacer les données actuelles par celles de cette sauvegarde ? Cette action ne peut pas être annulée.")) return;
     const previousProfile = profile;
     const previousData = data;
+    const previousSettings = settings;
     profile = {
       full_name: String(backup.profile.full_name),
       email: String(backup.profile.email || ""),
@@ -499,9 +576,11 @@ async function importBackup(event) {
       opening_balance: Number(backup.profile.opening_balance)
     };
     data = { transactions: backup.transactions, members: backup.members, budgets: backup.budgets };
+    setSettings(backup.settings);
     if (!saveWorkspace()) {
       profile = previousProfile;
       data = previousData;
+      setSettings(previousSettings);
       return;
     }
     currentPage = "dashboard";

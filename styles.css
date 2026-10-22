@@ -46,5 +46,13 @@
 .setup-form .field small,.profile-form .field small{font-size:9px;line-height:1.5;color:#8995a2}
 .setup-form .auth-submit{margin-top:5px}
 .storage-warning{color:#a64840!important}
+.settings-panel{grid-column:1/-1}
+.settings-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:22px}
+.settings-form .field input,.settings-form .field select,.settings-form .field textarea{width:100%;border:1px solid #e5e9ed;border-radius:7px;padding:9px 10px;font:11px "DM Sans",sans-serif;color:#344255;background:white;outline:0}
+.settings-form .field input,.settings-form .field select{height:39px}
+.settings-form .field textarea{resize:vertical;line-height:1.5}
+.settings-form .field input:focus,.settings-form .field select:focus,.settings-form .field textarea:focus{border-color:#65a88d;box-shadow:0 0 0 3px #318e7015}
+.settings-form .field small{font-size:9px;line-height:1.5;color:#8995a2}
+.settings-form .profile-form-actions{grid-column:1/-1}
 @media(max-width:760px){.auth-card{padding:27px 24px 21px}.auth-copy{margin-top:32px}.profile-layout{grid-template-columns:1fr}}
-@media(max-width:480px){.auth-screen{padding:18px 13px}.auth-card{padding:24px 19px 19px}.auth-copy h1{font-size:22px}}
+@media(max-width:480px){.auth-screen{padding:18px 13px}.auth-card{padding:24px 19px 19px}.auth-copy h1{font-size:22px}.settings-form{grid-template-columns:1fr}.settings-form .profile-form-actions{grid-column:auto}}

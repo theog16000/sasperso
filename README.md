@@ -19,6 +19,7 @@ Lors de la première ouverture, renseignez votre nom, votre association et son s
 - Annuaire avec ajout et recherche des membres, rôles et statuts.
 - Budgets par catégorie et suivi des dépenses.
 - Rapports financiers et suivi des adhésions.
+- Réglages personnalisables : cotisation annuelle, devise, début de l'exercice comptable, catégories d'opérations et rôles des membres.
 - Profil personnalisable avec le solde initial de l'association.
 - Sauvegarde complète au format JSON et restauration sur un autre appareil.
 
